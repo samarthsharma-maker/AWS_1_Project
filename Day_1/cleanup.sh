@@ -24,18 +24,17 @@ REGION="${REGION:-us-east-1}"
 export AWS_DEFAULT_REGION="$REGION"
 PROJECT="SwiftCart"
 STATE_FILE="./swiftcart-state.env"
-ASSUME_YES="${ASSUME_YES:-false}"
 DELETE_KEY="false"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    -y|--yes)      ASSUME_YES="true" ;;
     --delete-key)  DELETE_KEY="true" ;;
     -h|--help)
       cat <<USAGE
-Usage: ${0##*/} [-y|--yes] [--delete-key] [-h|--help]
-  -y, --yes       Auto-approve every deletion prompt.
+Usage: ${0##*/} [--delete-key] [-h|--help]
   --delete-key    Also delete the AWS key pair (local .pem file is untouched).
+
+Runs fully non-interactively — no confirmation prompts, deletes immediately.
 USAGE
       exit 0 ;;
     *) printf '\033[1;31m[FATAL] Unknown option: %s\033[0m\n' "$1" >&2; exit 2 ;;
@@ -57,19 +56,10 @@ fi
 
 _msg_tty() { if [[ -w /dev/tty ]]; then printf '%s' "$1" >/dev/tty; else printf '%s' "$1" >&2; fi; }
 
+# Runs the command directly — no confirmation prompt. Still echoes what's
+# running so you have a log, and keeps going even if one step fails.
 confirm_run() {
   _msg_tty $'\n'"\033[1;35m\$ $*\033[0m"$'\n'
-  if [ "$ASSUME_YES" != "true" ]; then
-    local reply=""
-    if [[ -r /dev/tty ]]; then
-      _msg_tty "    Delete with the above command? [y/N] "
-      read -r reply </dev/tty || true
-    fi
-    if [[ "$reply" != "y" && "$reply" != "Y" ]]; then
-      warn "Skipped."
-      return 0
-    fi
-  fi
   "$@" || warn "Command failed (continuing): $*"
 }
 
