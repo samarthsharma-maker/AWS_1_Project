@@ -26,21 +26,20 @@ export AWS_DEFAULT_REGION="$REGION"
 PROJECT="SwiftCart"
 KEY_NAME="${KEY_NAME:-swiftcart-key}"
 STATE_FILE="./swiftcart-day2-state.env"
-ASSUME_YES="${ASSUME_YES:-false}"
 WAIT_CLOUDFRONT="${WAIT_CLOUDFRONT:-true}"
 SKIP_OS_UNMOUNT="${SKIP_OS_UNMOUNT:-false}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    -y|--yes)            ASSUME_YES="true" ;;
     --no-wait-cloudfront) WAIT_CLOUDFRONT="false" ;;
     --skip-os-unmount)    SKIP_OS_UNMOUNT="true" ;;
     -h|--help)
       cat <<USAGE
-Usage: ${0##*/} [-y|--yes] [--no-wait-cloudfront] [--skip-os-unmount] [-h|--help]
-  -y, --yes               Auto-approve every deletion prompt.
+Usage: ${0##*/} [--no-wait-cloudfront] [--skip-os-unmount] [-h|--help]
   --no-wait-cloudfront    Disable the distribution but don't block waiting to delete it.
   --skip-os-unmount       Skip the SSH-driven unmount step (just detach/delete storage).
+
+Runs fully non-interactively — no confirmation prompts, deletes immediately.
 USAGE
       exit 0 ;;
     *) printf '\033[1;31m[FATAL] Unknown option: %s\033[0m\n' "$1" >&2; exit 2 ;;
@@ -63,19 +62,10 @@ KEY_FILE="${KEY_FILE:-$PWD/${KEY_NAME}.pem}"
 
 _msg_tty() { if [[ -w /dev/tty ]]; then printf '%s' "$1" >/dev/tty; else printf '%s' "$1" >&2; fi; }
 
+# Runs the command directly — no confirmation prompt. Still echoes what's
+# running so you have a log, and keeps going even if one step fails.
 confirm_run() {
   _msg_tty $'\n'"\033[1;35m\$ $*\033[0m"$'\n'
-  if [ "$ASSUME_YES" != "true" ]; then
-    local reply=""
-    if [[ -r /dev/tty ]]; then
-      _msg_tty "    Delete with the above command? [y/N] "
-      read -r reply </dev/tty || true
-    fi
-    if [[ "$reply" != "y" && "$reply" != "Y" ]]; then
-      warn "Skipped."
-      return 0
-    fi
-  fi
   "$@" || warn "Command failed (continuing): $*"
 }
 
@@ -117,14 +107,6 @@ ssh_exec() {
   script=$(cat)
   _msg_tty $'\n'"\033[1;35m\$ ssh ... ec2-user@$target bash -s <<'REMOTE'\033[0m"$'\n'
   _msg_tty "$script"$'\n'"\033[1;35mREMOTE\033[0m"$'\n'
-  if [ "$ASSUME_YES" != "true" ]; then
-    local reply=""
-    if [[ -r /dev/tty ]]; then
-      _msg_tty "    Run on remote host? [y/N] "
-      read -r reply </dev/tty || true
-    fi
-    [[ "$reply" == "y" || "$reply" == "Y" ]] || { _msg_tty "    (skipped)"$'\n'; return 2; }
-  fi
   printf '%s\n' "$script" | ssh -i "$KEY_FILE" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
       -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 \
       -o "ProxyCommand=ssh -i $KEY_FILE -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -W %h:%p ec2-user@$BASTION_IP" \
@@ -197,7 +179,6 @@ if [ -n "${SG_EFS:-}" ]; then
     out=$(aws ec2 delete-security-group --group-id "$SG_EFS" 2>&1) && { ok "Deleted $SG_EFS"; break; }
     case "$out" in *DependencyViolation*) sleep 10 ;; *) warn "$out"; break ;; esac
   done
-  confirm_run true  # no-op just to keep the confirm-pattern visible in dry runs
 else
   warn "No SG-EFS-Mount found, skipping"
 fi
