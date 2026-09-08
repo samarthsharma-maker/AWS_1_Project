@@ -1,0 +1,4 @@
+- Run the application as a **non-root user**.
+- Ensure it runs on **Ubuntu 22.04 or later**.
+- Update the **email address on line 68**.
+- also the Ec2 Instance should have the instance Profile
